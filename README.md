@@ -11,7 +11,8 @@ A simple HTTP server for serving files straight from a git repository.
         -V, --version    Prints version information
 
     OPTIONS:
-        -r, --revision <revision>     [default: master]
+        -i, --interface <interface>     [default: 127.0.0.1:3000]
+        -r, --revision <revision>       [default: master]
 
     ARGS:
-        <path>     [default: .]    
+        <path>     [default: .]
