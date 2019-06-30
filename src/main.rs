@@ -8,7 +8,7 @@ use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper::rt::Future;
 use hyper::service::service_fn_ok;
 use git2::{Blob, ObjectType, Repository};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::path::{Path, PathBuf};
 
 const INDEX_FILE: &str = "index.html";
@@ -18,6 +18,8 @@ const INDEX_FILE: &str = "index.html";
 struct Opt {
     #[structopt(short = "d", long = "debug")]
     debug: bool,
+    #[structopt(short = "i", long = "interface", default_value = "127.0.0.1:3000")]
+    interface: String,
     #[structopt(short = "r", long = "revision", default_value = "master")]
     revision: String,
     #[structopt(parse(from_os_str), default_value=".")]
@@ -29,16 +31,16 @@ fn main() {
     let level = if opt.debug { log::Level::Trace } else { log::Level::Info };
     simple_logger::init_with_level(level).expect("Error initializing logger");
 
-    let repo = Arc::new(Mutex::new(Repository::open(opt.path).expect("Repository not found")));
+    let path = Arc::new(opt.path);
     let revision = Arc::new(opt.revision);
 
-    let addr = ([127, 0, 0, 1], 3000).into();
+    let addr = opt.interface.parse().expect("Invalid interface address");
     let server = Server::bind(&addr)
         .serve(move || {
-            let repo = Arc::clone(&repo);
             let revision = Arc::clone(&revision);
+            let repo = Repository::open(&*path).expect("Repository not found");
             service_fn_ok(move |req| {
-                serve(req, &repo.clone().lock().unwrap(), &revision)
+                serve(req, &repo, &revision)
             })
         })
         .map_err(|e| error!("Server error: {}", e));
