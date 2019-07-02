@@ -1,0 +1,30 @@
+pkgname=gite-git
+pkgver=0.1.0.r0.716e894
+pkgrel=1
+pkgdesc="A simple HTTP server for serving files straight from a git repository."
+arch=('i686' 'x86_64')
+url="https://github.com/bzar/gite"
+license=('MIT')
+provides=("gite")
+makedepends=('cargo' 'git')
+source=("$pkgname::git+https://github.com/bzar/gite.git")
+sha1sums=('SKIP')
+
+build() {
+  cd "$pkgname"
+  cargo build --release
+}
+
+pkgver() {
+  cd "$pkgname"
+  local tag=$(git tag --sort=-v:refname | grep '^[0-9]' | head -1)
+  local commits_since=$(git rev-list $tag..HEAD --count)
+  echo "$tag.r$commits_since.$(git log --pretty=format:'%h' -n 1)"
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 "target/release/gite" "$pkgdir/usr/bin/gite"
+  install -Dm644 "README.md" "$pkgdir/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 "LICENSE" "$pkgdir/usr/share/licenses/${pkgname}/LICENSE-MIT"
+}
