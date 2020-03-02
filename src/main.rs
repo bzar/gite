@@ -4,9 +4,9 @@ use structopt::StructOpt;
 #[macro_use]
 extern crate log;
 
+use std::convert::Infallible;
 use hyper::{Body, Request, Response, Server, StatusCode};
-use hyper::rt::Future;
-use hyper::service::service_fn_ok;
+use hyper::service::{make_service_fn, service_fn};
 use git2::{Blob, ObjectType, Repository};
 use std::sync::{Arc};
 use std::path::{Path, PathBuf};
@@ -26,28 +26,39 @@ struct Opt {
     path: PathBuf,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let opt = Opt::from_args();
     let level = if opt.debug { log::Level::Trace } else { log::Level::Info };
     simple_logger::init_with_level(level).expect("Error initializing logger");
 
-    let path = Arc::new(opt.path);
-    let revision = Arc::new(opt.revision);
+    let shared_path = Arc::new(opt.path);
+    let shared_revision = Arc::new(opt.revision);
 
     let addr = opt.interface.parse().expect("Invalid interface address");
-    let server = Server::bind(&addr)
-        .serve(move || {
-            let revision = Arc::clone(&revision);
-            let repo = Repository::open(&*path).expect("Repository not found");
-            service_fn_ok(move |req| {
-                serve(req, &repo, &revision)
-            })
-        })
-        .map_err(|e| error!("Server error: {}", e));
-    hyper::rt::run(server);
+
+    let make_svc = make_service_fn(move |_conn| {
+        let path = Arc::clone(&shared_path);
+        let revision = Arc::clone(&shared_revision);
+        async move {
+            let service = service_fn(move |req: Request<Body>| {
+                let repo = Repository::open(&*path).expect("Repository not found");
+                let revision = revision.clone();
+                async move {
+                    serve(req, &repo, &*revision)
+                }
+            });
+            Ok::<_, Infallible>(service)
+        }
+    });
+
+    let server = Server::bind(&addr).serve(make_svc);
+    if let Err(e) = server.await {
+        eprintln!("server error: {}", e);
+    }
 }
 
-fn serve(req: Request<Body>, repo: &Repository, revision: &str) -> Response<Body> {
+fn serve(req: Request<Body>, repo: &Repository, revision: &str) -> Result<Response<Body>, Infallible> {
     let path = {
         let path = Path::new(req.uri().path());
         if path == Path::new("/") {
@@ -60,15 +71,15 @@ fn serve(req: Request<Body>, repo: &Repository, revision: &str) -> Response<Body
     match blob {
         Ok(blob) => {
             info!("200 {} {}", req.method().as_str(), req.uri());
-            Response::new(Body::from(blob.content().to_owned()))
+            Ok(Response::new(Body::from(blob.content().to_owned())))
         },
         Err(e) => {
             info!("404 {} {}", req.method().as_str(), req.uri());
             warn!("{}", e.message());
-            Response::builder()
+            Ok(Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("Not Found"))
-                .unwrap()
+                .unwrap())
         }
     }
 }
